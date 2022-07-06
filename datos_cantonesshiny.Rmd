@@ -1,0 +1,143 @@
+---
+title: "Datos de cantones de Costa Rica - flexdashboard y Shiny"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    theme:
+      version: 3
+      bootswatch: cosmo
+runtime: shiny 
+---
+
+```{r setup, include=FALSE}
+#install.packages("dplyr")
+library(dplyr)
+library(sf)
+library(DT)
+library(ggplot2)
+library(plotly)
+library(leaflet)
+library(shiny)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r lectura}
+cantones <-
+  st_read(dsn = "cantones_simplificados.geojson.txt", quiet = TRUE) %>%
+  st_transform(4326)
+```
+
+
+```{r lista-provincias}
+#Lista Ordenada de provincias + "Todas"
+lista_provincias <- unique(cantones$provincia)
+lista_provincias <- sort(lista_provincias)
+lista_provincias <- c ("Todas",lista_provincias)
+```
+
+```{r filtros}
+selectInput(
+  inputId = "provincia",
+  label = "Provincia",
+  choices = lista_provincias,
+  selected = "Todos"
+)
+
+
+```
+
+
+```{r-filtros}
+# Función para filtrar los datos con base en los controles de entrada
+
+filtrarCantones <- reactive({
+  # Valor inicial del objeto que va a retornarse
+  cantones_filtrados <- cantones
+  
+  # Filtrado de cantones por provincia
+  if (input$provincia != "Todas") {
+    cantones_filtrados <-
+      cantones_filtrados %>%
+      filter(provincia == input$provincia)
+  }
+  return(cantones_filtrados)
+
+### **Fuente de los datos: [Instituto Geográfico Nacional (IGN)](http://geos.snitcr.go.cr/be/IGN_5/wfs)**
+
+
+```
+
+Row {data-height=10}
+
+
+
+```{r}
+# Mapa
+renderLeaflet({
+  cantones <- filtrarCantones()
+  
+  leaflet() %>%
+    setView(lng = -84.19452,
+            lat = 9.572735,
+            zoom = 7) %>%
+    addTiles(group = "OpenStreetMap") %>%
+    addPolygons(
+      data = cantones,
+      color = "black",
+      opacity = 0.2,
+      weight = 1.5,
+      popup = paste(
+        paste("<a>Cantón:</a>", cantones$canton),
+        paste("<a>Área:</a>", cantones$area, "km2"),
+        sep = "<br>"
+      ),
+      group = "Cantones"
+    ) %>%
+    addLayersControl(baseGroups = c("OpenStreetMap"),
+                     overlayGroups = c("Cantones"))
+})
+```
+
+
+```{r tabla}
+# Tabla
+renderDT({
+  cantones <- filtrarCantones()
+  
+  cantones %>%
+    st_drop_geometry() %>%
+    select(provincia, canton, area) %>%
+    arrange(desc(area)) %>%
+    datatable(
+      colnames = c("Provincia", "Cantón", "Área"),
+      options = list(
+        pageLength = 5,
+        language = list(url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/Spanish.json')
+      )
+    )
+})
+
+```
+
+
+```{r grafico}
+# Gráfico
+renderPlotly({
+  cantones <- filtrarCantones()
+  
+  grafico_ggplot2 <-
+    cantones %>%
+    st_drop_geometry() %>%
+    slice_max(area, n = 20) %>%
+    ggplot(aes(x = reorder(canton,-area), y = area)) +
+    geom_bar(stat = "identity") +
+    xlab("Cantón") +
+    ylab("Área (km2)")
+  
+  ggplotly(grafico_ggplot2)
+})
+```
+
+
+
+
